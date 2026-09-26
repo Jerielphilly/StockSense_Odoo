@@ -405,6 +405,17 @@ def get_receipt_details(reference: str, db: Session = Depends(get_db), current_u
         "items": items
     }
 
+@app.post("/receipts/{reference:path}/ready")
+def mark_receipt_ready(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+        
+    for move in moves:
+        move.status = 'ready'
+    db.commit()
+    return {"message": "Receipt marked as ready"}
+
 @app.post("/deliveries")
 def create_delivery(delivery: schemas.ReceiptCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     # Generate WH/OUT/000X reference (using ReceiptCreate schema since payload structure is identical)

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ArrowLeft, Repeat, Plus, Search, Calendar, MapPin } from 'lucide-react';
 
 export default function Transfers() {
   const [transfers, setTransfers] = useState([]);
@@ -32,10 +33,7 @@ export default function Transfers() {
     } catch (err) { console.error(err); }
   };
 
-  useEffect(() => {
-    fetchTransfers();
-    fetchDropdowns();
-  }, []);
+  useEffect(() => { fetchTransfers(); fetchDropdowns(); }, []);
 
   const openDetail = async (ref) => {
     try {
@@ -55,30 +53,25 @@ export default function Transfers() {
     if (!formData.source_location_id || !formData.dest_location_id) return alert("Select both source and destination locations!");
     if (formData.source_location_id === formData.dest_location_id) return alert("Source and destination must be different!");
     
-    const items = formItems.filter(i => i.product_id && i.quantity > 0).map(i => ({
-      product_id: parseInt(i.product_id),
-      quantity: parseInt(i.quantity)
-    }));
-    
-    if (items.length === 0) return alert("Add at least one valid product!");
-
-    const payload = {
-      schedule_date: formData.schedule_date ? new Date(formData.schedule_date).toISOString() : null,
-      source_location_id: parseInt(formData.source_location_id),
-      dest_location_id: parseInt(formData.dest_location_id),
-      items: items
-    };
+    const validItems = formItems.filter(i => i.product_id && i.quantity > 0);
+    if (validItems.length === 0) return alert("Add at least one product.");
 
     try {
       const token = localStorage.getItem('token');
+      const payload = { 
+        ...formData, 
+        source_location_id: parseInt(formData.source_location_id),
+        dest_location_id: parseInt(formData.dest_location_id), 
+        items: validItems.map(i => ({...i, product_id: parseInt(i.product_id)})) 
+      };
       const res = await fetch('http://127.0.0.1:8000/transfers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload)
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error("Failed to create transfer");
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || "Failed to create transfer");
+      }
       
-      alert("Transfer created successfully!");
       setFormData({ schedule_date: '', source_location_id: '', dest_location_id: '' });
       setFormItems([{ product_id: '', quantity: 1 }]);
       setView('list');
@@ -86,203 +79,189 @@ export default function Transfers() {
     } catch (err) { alert(err.message); }
   };
 
-  const handleCheckAvailability = async () => {
+  const updateStatus = async (action) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://127.0.0.1:8000/transfers/${encodeURIComponent(selectedTransfer.reference)}/check`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      alert(data.message);
-      openDetail(selectedTransfer.reference);
-    } catch (err) { alert("Error checking availability"); }
+      const url = action === 'ready' 
+        ? `http://127.0.0.1:8000/transfers/${encodeURIComponent(selectedTransfer.reference)}/check`
+        : `http://127.0.0.1:8000/moves/${selectedTransfer.items[0].move_id}/validate`; 
+      
+      const res = await fetch(url, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }});
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || `Failed to mark as ${action}`);
+      }
+      
+      openDetail(selectedTransfer.reference); // refresh
+      fetchTransfers();
+    } catch (err) { alert(err.message); }
   };
 
-  const handleValidate = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      for (const item of selectedTransfer.items) {
-        await fetch(`http://127.0.0.1:8000/moves/${item.move_id}/validate`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${token}` }
-        });
-      }
-      openDetail(selectedTransfer.reference);
-    } catch (err) { alert("Error validating: " + err.message); }
+  const getStatusBadge = (status) => {
+    const colors = {
+      'draft': 'bg-gray-100 text-gray-500',
+      'waiting': 'bg-yellow-100 text-yellow-600',
+      'ready': 'bg-blue-100 text-blue-600',
+      'done': 'bg-[#1c1c1e] text-white' 
+    };
+    return <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${colors[status] || colors.draft}`}>{status}</span>;
   };
 
   return (
-    <div className="page-container">
-      {/* ---------- LIST VIEW ---------- */}
+    <div className="max-w-7xl mx-auto">
+      
+      {/* Header */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-flux-textMain flex items-center gap-3">
+            <Repeat className="text-[#1c1c1e]" size={32} /> Internal Transfers
+          </h1>
+          <p className="text-flux-textSub text-sm mt-1">Move stock between your internal locations.</p>
+        </div>
+        {view === 'list' ? (
+          <button onClick={() => setView('create')} className="bg-[#1c1c1e] text-white font-bold px-6 py-3 rounded-xl shadow-sm hover:bg-gray-800 transition-colors flex items-center gap-2">
+            <Plus size={20} /> New Transfer
+          </button>
+        ) : (
+          <button onClick={() => setView('list')} className="text-gray-500 hover:text-flux-dark font-medium px-4 py-2 rounded-xl transition-colors flex items-center gap-2">
+            <ArrowLeft size={18} /> Back to List
+          </button>
+        )}
+      </div>
+
       {view === 'list' && (
-        <>
-          <div className="page-header">
-            <div>
-              <h2>Internal Transfers</h2>
-              <p className="subtitle">Move stock between your internal locations.</p>
-            </div>
-            <button className="primary-btn" onClick={() => setView('create')} style={{marginTop:0}}>+ NEW</button>
-          </div>
-          <div className="table-container">
-            <table className="custom-table">
+        <div className="bg-white rounded-3xl p-6 shadow-soft">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Status</th>
+                <tr className="border-b border-gray-100">
+                  <th className="py-4 px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Reference</th>
+                  <th className="py-4 px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Schedule Date</th>
+                  <th className="py-4 px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {transfers.length === 0 ? (
-                  <tr><td colSpan="4" style={{textAlign:'center'}}>No internal transfers found.</td></tr>
-                ) : transfers.map((t, idx) => (
-                  <tr key={idx} style={{cursor:'pointer'}} onClick={() => openDetail(t.reference)}>
-                    <td style={{color: '#ffb4a2'}}>{t.reference}</td>
-                    <td>{t.source_location_name}</td>
-                    <td>{t.dest_location_name}</td>
-                    <td>{t.status.toUpperCase()}</td>
+                {transfers.map(r => (
+                  <tr key={r.reference} onClick={() => openDetail(r.reference)} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors group">
+                    <td className="py-4 px-4 font-bold text-flux-textMain group-hover:text-flux-purple transition-colors">{r.reference}</td>
+                    <td className="py-4 px-4 text-sm text-gray-500">{r.schedule_date ? new Date(r.schedule_date).toLocaleDateString() : '-'}</td>
+                    <td className="py-4 px-4">{getStatusBadge(r.status)}</td>
                   </tr>
                 ))}
+                {transfers.length === 0 && <tr><td colSpan="3" className="py-12 text-center text-gray-400">No transfers found.</td></tr>}
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       )}
 
-      {/* ---------- CREATE VIEW ---------- */}
       {view === 'create' && (
-        <>
-          <div className="page-header">
-            <h2>New Internal Transfer</h2>
-            <button className="small-btn" onClick={() => setView('list')}>Cancel</button>
-          </div>
-          <form className="auth-card" style={{width: '100%', padding: '2rem'}} onSubmit={handleCreateSubmit}>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2rem', marginBottom: '2rem'}}>
-              <div className="input-group">
-                <label>Source Location (From)</label>
-                <select required value={formData.source_location_id} onChange={e=>setFormData({...formData, source_location_id: e.target.value})} style={{padding:'0.8rem', background:'#1a1a1a', color:'white', border:'2px solid #ffb4a2'}}>
-                  <option value="">-- Choose --</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        <div className="bg-white rounded-3xl p-8 shadow-soft max-w-4xl">
+          <h3 className="text-xl font-bold mb-6 text-flux-textMain">Draft New Transfer</h3>
+          <form onSubmit={handleCreateSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2"><Calendar size={14}/> Scheduled Date</label>
+                <input type="date" value={formData.schedule_date} onChange={e => setFormData({...formData, schedule_date: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-gray-800 text-sm" />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2"><MapPin size={14}/> Source Location *</label>
+                <select required value={formData.source_location_id} onChange={e => setFormData({...formData, source_location_id: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-gray-800 text-sm">
+                  <option value="">Select Origin Location</option>
+                  {locations.filter(l => l.type === 'internal').map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
                 </select>
               </div>
-              <div className="input-group">
-                <label>Destination Location (To)</label>
-                <select required value={formData.dest_location_id} onChange={e=>setFormData({...formData, dest_location_id: e.target.value})} style={{padding:'0.8rem', background:'#1a1a1a', color:'white', border:'2px solid #ffb4a2'}}>
-                  <option value="">-- Choose --</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2"><MapPin size={14}/> Destination Location *</label>
+                <select required value={formData.dest_location_id} onChange={e => setFormData({...formData, dest_location_id: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-gray-800 text-sm">
+                  <option value="">Select Destination Location</option>
+                  {locations.filter(l => l.type === 'internal').map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
                 </select>
-              </div>
-              <div className="input-group">
-                <label>Schedule Date</label>
-                <input type="date" required value={formData.schedule_date} onChange={e=>setFormData({...formData, schedule_date: e.target.value})} />
               </div>
             </div>
 
-            <h3 style={{color:'#ffb4a2', marginBottom:'1rem'}}>Products to Transfer</h3>
-            {formItems.map((item, idx) => (
-              <div key={idx} style={{display:'flex', gap:'1rem', marginBottom:'1rem'}}>
-                <select style={{flex:2, padding:'0.8rem', background:'#1a1a1a', color:'white', border:'2px solid #ffb4a2'}}
-                        value={item.product_id} 
-                        onChange={e => {
-                          const newItems = [...formItems];
-                          newItems[idx].product_id = e.target.value;
-                          setFormItems(newItems);
-                        }}>
-                  <option value="">-- Select Product --</option>
-                  {products.map(p => <option key={p.id} value={p.id}>[{p.sku}] {p.name}</option>)}
-                </select>
-                <input type="number" min="1" style={{flex:1, padding:'0.8rem', background:'#1a1a1a', color:'white', border:'2px solid #ffb4a2'}}
-                       value={item.quantity} 
-                       onChange={e => {
-                          const newItems = [...formItems];
-                          newItems[idx].quantity = e.target.value;
-                          setFormItems(newItems);
-                       }} />
+            <div className="pt-6 border-t border-gray-100">
+              <h4 className="text-sm font-bold text-flux-textMain mb-4">Operations (Products to Move)</h4>
+              <div className="space-y-3">
+                {formItems.map((item, idx) => (
+                  <div key={idx} className="flex gap-4">
+                    <select required value={item.product_id} onChange={e => {
+                      const newItems = [...formItems];
+                      newItems[idx].product_id = e.target.value;
+                      setFormItems(newItems);
+                    }} className="flex-1 px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-gray-800 text-sm">
+                      <option value="">Select Product...</option>
+                      {products.map(p => <option key={p.id} value={p.id}>[{p.sku}] {p.name}</option>)}
+                    </select>
+                    <input type="number" required min="1" value={item.quantity} onChange={e => {
+                      const newItems = [...formItems];
+                      newItems[idx].quantity = e.target.value;
+                      setFormItems(newItems);
+                    }} className="w-32 px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-gray-800 text-sm" />
+                  </div>
+                ))}
               </div>
-            ))}
-            <button type="button" className="small-btn" onClick={() => setFormItems([...formItems, {product_id: '', quantity: 1}])}>+ Add Line</button>
-            <br/><br/>
-            <button type="submit" className="primary-btn">Save Transfer</button>
+              <button type="button" onClick={() => setFormItems([...formItems, { product_id: '', quantity: 1 }])} className="mt-4 text-sm font-bold text-flux-purple hover:text-flux-dark transition-colors">
+                + Add another line
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-6">
+              <button type="submit" className="bg-[#1c1c1e] text-white px-8 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-800 transition-colors">
+                Save as Draft
+              </button>
+            </div>
           </form>
-        </>
+        </div>
       )}
 
-      {/* ---------- DETAIL VIEW ---------- */}
       {view === 'detail' && selectedTransfer && (
-        <>
-          <div className="page-header" style={{display: 'flex', flexDirection: 'column', alignItems: 'stretch'}}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'1rem'}}>
-              <h2>{selectedTransfer.reference}</h2>
-              <button className="small-btn" onClick={() => setView('list')}>Back to List</button>
+        <div className="bg-white rounded-3xl p-8 shadow-soft">
+          <div className="flex justify-between items-start mb-8 pb-8 border-b border-gray-100">
+            <div>
+              <h2 className="text-3xl font-bold text-flux-textMain mb-2">{selectedTransfer.reference}</h2>
             </div>
-            
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#242424', padding:'1rem', borderRadius:'8px', border:'1px solid #444'}}>
-              <div style={{display:'flex', gap:'1rem'}}>
-                {selectedTransfer.status === 'draft' && <button className="primary-btn" style={{marginTop:0}} onClick={handleCheckAvailability}>Check Availability</button>}
-                {selectedTransfer.status === 'waiting' && <button className="primary-btn" style={{marginTop:0}} onClick={handleCheckAvailability}>Re-check Availability</button>}
-                {selectedTransfer.status === 'ready' && <button className="primary-btn" style={{marginTop:0}} onClick={handleValidate}>Validate</button>}
-                {selectedTransfer.status === 'done' && <button className="small-btn" onClick={() => window.print()}>Print</button>}
-              </div>
-              <div style={{color:'#ffb4a2', fontWeight:'bold', fontSize:'1.1rem'}}>
-                <span style={{opacity: selectedTransfer.status === 'draft' ? 1 : 0.4}}>Draft</span> &gt; 
-                <span style={{opacity: selectedTransfer.status === 'waiting' ? 1 : 0.4}}> Waiting</span> &gt; 
-                <span style={{opacity: selectedTransfer.status === 'ready' ? 1 : 0.4}}> Ready</span> &gt; 
-                <span style={{opacity: selectedTransfer.status === 'done' ? 1 : 0.4}}> Done</span>
-              </div>
+            <div className="flex items-center gap-4">
+              {getStatusBadge(selectedTransfer.status)}
+              
+              {selectedTransfer.status === 'draft' && (
+                <button onClick={() => updateStatus('ready')} className="bg-gray-800 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-gray-900 transition-colors">
+                  Check Availability
+                </button>
+              )}
+              {selectedTransfer.status === 'ready' && (
+                <button onClick={() => updateStatus('validate')} className="bg-flux-neon text-flux-dark px-6 py-2 rounded-xl font-bold text-sm hover:bg-[#c6e541] transition-colors">
+                  Validate Transfer
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="auth-card" style={{width:'100%', padding:'2rem', textAlign:'left'}}>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2rem', marginBottom:'2rem', borderBottom:'1px solid #444', paddingBottom:'2rem'}}>
-              <div>
-                <p style={{color:'#888', marginBottom:'0.5rem'}}>From (Source)</p>
-                <p style={{fontSize:'1.2rem'}}>{selectedTransfer.source_location_name}</p>
-              </div>
-              <div>
-                <p style={{color:'#888', marginBottom:'0.5rem'}}>To (Destination)</p>
-                <p style={{fontSize:'1.2rem'}}>{selectedTransfer.dest_location_name}</p>
-              </div>
-              <div>
-                <p style={{color:'#888', marginBottom:'0.5rem'}}>Schedule Date</p>
-                <p style={{fontSize:'1.2rem'}}>{selectedTransfer.schedule_date ? new Date(selectedTransfer.schedule_date).toLocaleDateString() : '-'}</p>
-              </div>
-              <div>
-                <p style={{color:'#888', marginBottom:'0.5rem'}}>Responsible</p>
-                <p style={{fontSize:'1.2rem'}}>{selectedTransfer.created_by}</p>
-              </div>
-            </div>
-
-            <h3 style={{color:'#ffb4a2', marginBottom:'1rem'}}>Products</h3>
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Quantity</th>
-                  <th>{selectedTransfer.status === 'done' ? 'Transferred' : 'Available in Source'}</th>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="py-4 px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Product</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider text-right">Quantity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedTransfer.items.map(item => (
+                <tr key={item.move_id} className="border-b border-gray-50">
+                  <td className="py-4 px-4 font-semibold text-flux-textMain">[{item.sku}] {item.product_name}</td>
+                  <td className="py-4 px-4 text-right font-bold text-flux-textMain">{item.quantity}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {selectedTransfer.items.map((item, idx) => {
-                  const outOfStock = (item.quantity > item.on_hand) && (selectedTransfer.status !== 'done');
-                  return (
-                    <tr key={idx}>
-                      <td style={{color: outOfStock ? '#ff4d4d' : 'inherit'}}>
-                        [{item.sku}] {item.product_name}
-                        {outOfStock && <span style={{marginLeft:'10px', fontSize:'0.8rem', background:'#ff4d4d', color:'white', padding:'2px 6px', borderRadius:'4px'}}>Not enough stock!</span>}
-                      </td>
-                      <td style={{color: outOfStock ? '#ff4d4d' : 'inherit'}}>{item.quantity}</td>
-                      <td style={{color: outOfStock ? '#ff4d4d' : 'inherit'}}>
-                        {selectedTransfer.status === 'done' ? item.quantity : item.on_hand}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-
     </div>
   );
 }

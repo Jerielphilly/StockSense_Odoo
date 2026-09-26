@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, Building, MapPin, Plus } from 'lucide-react';
 
 export default function Settings() {
   const [warehouses, setWarehouses] = useState([]);
@@ -32,7 +33,6 @@ export default function Settings() {
         body: JSON.stringify(whForm)
       });
       if (!res.ok) throw new Error("Failed to create warehouse");
-      alert("Warehouse created successfully!");
       setWhForm({ name: '', short_code: '', address: '' });
       fetchData();
     } catch (err) { alert(err.message); }
@@ -42,99 +42,115 @@ export default function Settings() {
     e.preventDefault();
     try {
       const token = localStorage.getItem('token');
-      const payload = {
-        name: locForm.name,
-        short_code: locForm.short_code,
-        type: 'internal',
-        warehouse_id: locForm.warehouse_id ? parseInt(locForm.warehouse_id) : null
-      };
-      
       const res = await fetch('http://127.0.0.1:8000/locations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...locForm, warehouse_id: parseInt(locForm.warehouse_id) })
       });
       if (!res.ok) throw new Error("Failed to create location");
-      alert("Location created successfully!");
       setLocForm({ name: '', short_code: '', warehouse_id: '' });
       fetchData();
     } catch (err) { alert(err.message); }
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header">
+    <div className="max-w-7xl mx-auto">
+      
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-flux-textMain flex items-center gap-3">
+          <SettingsIcon className="text-flux-purple" size={32} /> System Settings
+        </h1>
+        <p className="text-flux-textSub text-sm mt-1">Configure your physical warehouses and logical bins.</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* Warehouses Section */}
         <div>
-          <h2>Settings</h2>
-          <p className="subtitle">This page contains the warehouse details & locations.</p>
-        </div>
-      </div>
+          <div className="bg-white rounded-3xl p-8 shadow-soft mb-8">
+            <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
+              <h3 className="text-xl font-bold text-flux-textMain flex items-center gap-2"><Building size={20}/> Add Warehouse</h3>
+            </div>
+            
+            <form onSubmit={handleWarehouseSubmit} className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Warehouse Name</label>
+                <input required type="text" value={whForm.name} onChange={e => setWhForm({...whForm, name: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-neon text-sm" placeholder="Main Warehouse" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Short Code</label>
+                <input required type="text" value={whForm.short_code} onChange={e => setWhForm({...whForm, short_code: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-neon text-sm" placeholder="WH" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Address</label>
+                <input type="text" value={whForm.address} onChange={e => setWhForm({...whForm, address: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-neon text-sm" placeholder="123 Stock St." />
+              </div>
+              <button type="submit" className="w-full bg-flux-dark text-white font-bold py-3 rounded-xl mt-4 hover:bg-gray-800 transition-colors flex justify-center items-center gap-2">
+                <Plus size={18} /> Create Warehouse
+              </button>
+            </form>
+          </div>
 
-      {/* Warehouse Card */}
-      <div className="auth-card" style={{width: '100%', padding: '2rem', marginBottom: '2rem', textAlign:'left'}}>
-        <h3 style={{color: '#ffb4a2', borderBottom: '1px solid #444', paddingBottom: '1rem', marginBottom: '1rem'}}>Warehouse</h3>
-        <form onSubmit={handleWarehouseSubmit} style={{display:'grid', gridTemplateColumns:'1fr', gap:'1.5rem', maxWidth:'500px'}}>
-          <div className="input-group">
-            <label>Name:</label>
-            <input type="text" required value={whForm.name} onChange={e => setWhForm({...whForm, name: e.target.value})} placeholder="e.g. Main Warehouse" />
-          </div>
-          <div className="input-group">
-            <label>Short Code:</label>
-            <input type="text" required value={whForm.short_code} onChange={e => setWhForm({...whForm, short_code: e.target.value})} placeholder="e.g. WH" />
-          </div>
-          <div className="input-group">
-            <label>Address:</label>
-            <input type="text" value={whForm.address} onChange={e => setWhForm({...whForm, address: e.target.value})} placeholder="e.g. 123 Factory Lane" />
-          </div>
-          <button type="submit" className="primary-btn" style={{width:'fit-content'}}>Save Warehouse</button>
-        </form>
-        
-        {warehouses.length > 0 && (
-          <div style={{marginTop:'2rem'}}>
-            <h4 style={{color:'#888'}}>Saved Warehouses</h4>
-            <ul style={{listStyle:'none', padding:0}}>
-              {warehouses.map(w => <li key={w.id}>[{w.short_code}] {w.name} - {w.address}</li>)}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      {/* Location Card */}
-      <div className="auth-card" style={{width: '100%', padding: '2rem', textAlign:'left'}}>
-        <h3 style={{color: '#ffb4a2', borderBottom: '1px solid #444', paddingBottom: '1rem', marginBottom: '1rem'}}>Location</h3>
-        <p style={{color:'#888', fontSize:'0.9rem', marginBottom:'1.5rem'}}>This holds the multiple locations of warehouse, rooms etc..</p>
-        <form onSubmit={handleLocationSubmit} style={{display:'grid', gridTemplateColumns:'1fr', gap:'1.5rem', maxWidth:'500px'}}>
-          <div className="input-group">
-            <label>Name:</label>
-            <input type="text" required value={locForm.name} onChange={e => setLocForm({...locForm, name: e.target.value})} placeholder="e.g. Stock" />
-          </div>
-          <div className="input-group">
-            <label>Short Code:</label>
-            <input type="text" required value={locForm.short_code} onChange={e => setLocForm({...locForm, short_code: e.target.value})} placeholder="e.g. Stock1" />
-          </div>
-          <div className="input-group">
-            <label>Warehouse:</label>
-            <select required value={locForm.warehouse_id} onChange={e => setLocForm({...locForm, warehouse_id: e.target.value})} style={{padding:'0.8rem', background:'#1a1a1a', color:'white', border:'2px solid #ffb4a2'}}>
-              <option value="">-- Select Warehouse --</option>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>{w.short_code}</option>
+          <div className="bg-white rounded-3xl p-6 shadow-soft">
+            <h3 className="text-lg font-bold text-flux-textMain mb-4">Existing Warehouses</h3>
+            <ul className="space-y-3">
+              {warehouses.map(wh => (
+                <li key={wh.id} className="flex justify-between items-center bg-gray-50 px-4 py-3 rounded-xl">
+                  <div>
+                    <span className="font-bold text-sm text-flux-textMain">{wh.name}</span>
+                    <span className="text-xs text-gray-500 block">{wh.address || 'No address provided'}</span>
+                  </div>
+                  <span className="bg-flux-neon/20 text-flux-dark px-2 py-1 rounded text-xs font-mono font-bold">{wh.short_code}</span>
+                </li>
               ))}
-            </select>
-          </div>
-          <button type="submit" className="primary-btn" style={{width:'fit-content'}}>Save Location</button>
-        </form>
-        
-        {locations.length > 0 && (
-          <div style={{marginTop:'2rem'}}>
-            <h4 style={{color:'#888'}}>Saved Locations</h4>
-            <ul style={{listStyle:'none', padding:0}}>
-              {locations.map(l => {
-                const wh = warehouses.find(w => w.id === l.warehouse_id);
-                return <li key={l.id}>[{wh ? wh.short_code : ''}/{l.short_code || '?'}] {l.name}</li>
-              })}
             </ul>
           </div>
-        )}
+        </div>
+
+        {/* Locations Section */}
+        <div>
+          <div className="bg-white rounded-3xl p-8 shadow-soft mb-8">
+            <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
+              <h3 className="text-xl font-bold text-flux-textMain flex items-center gap-2"><MapPin size={20}/> Add Location (Bin)</h3>
+            </div>
+            
+            <form onSubmit={handleLocationSubmit} className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Parent Warehouse</label>
+                <select required value={locForm.warehouse_id} onChange={e => setLocForm({...locForm, warehouse_id: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-purple text-sm">
+                  <option value="">Select Warehouse...</option>
+                  {warehouses.map(wh => <option key={wh.id} value={wh.id}>{wh.name}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Location Name</label>
+                <input required type="text" value={locForm.name} onChange={e => setLocForm({...locForm, name: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-purple text-sm" placeholder="Shelf A1" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-500 uppercase">Short Code</label>
+                <input required type="text" value={locForm.short_code} onChange={e => setLocForm({...locForm, short_code: e.target.value})} className="px-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-purple text-sm" placeholder="A1" />
+              </div>
+              <button type="submit" className="w-full bg-flux-purple text-white font-bold py-3 rounded-xl mt-4 hover:bg-[#a395e9] transition-colors flex justify-center items-center gap-2">
+                <Plus size={18} /> Create Location
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-soft">
+            <h3 className="text-lg font-bold text-flux-textMain mb-4">Existing Locations</h3>
+            <ul className="space-y-3">
+              {locations.map(loc => (
+                <li key={loc.id} className="flex justify-between items-center bg-gray-50 px-4 py-3 rounded-xl">
+                  <div>
+                    <span className="font-bold text-sm text-flux-textMain">{loc.name}</span>
+                    <span className="text-xs text-gray-500 block uppercase">{loc.type}</span>
+                  </div>
+                  <span className="bg-gray-200 text-gray-600 px-2 py-1 rounded text-xs font-mono font-bold">{loc.full_code}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
 
     </div>

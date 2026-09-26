@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { LogIn, Key, User } from 'lucide-react';
 
 export default function Login() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -24,7 +24,6 @@ export default function Login() {
       }
 
       const data = await res.json();
-      // Save token and go to Dashboard
       localStorage.setItem('token', data.access_token);
       window.location.href = '/dashboard';
       
@@ -34,41 +33,63 @@ export default function Login() {
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <h2>App Logo</h2>
+    <div className="min-h-screen bg-flux-light flex items-center justify-center p-8 relative overflow-hidden">
+      
+      {/* Background decorations */}
+      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-flux-purple opacity-5 rounded-full blur-[100px] pointer-events-none"></div>
+
+      <div className="bg-white rounded-3xl shadow-soft w-full max-w-md p-10 relative z-10 border border-gray-100">
         
-        <form onSubmit={handleLogin} className="auth-form">
-          <div className="input-group">
-            <label>Login Id</label>
+        <div className="flex justify-center mb-8">
+          <div className="w-16 h-16 bg-flux-dark rounded-2xl flex items-center justify-center shadow-soft">
+            <span className="text-3xl font-bold text-flux-neon">S</span>
+          </div>
+        </div>
+
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-bold text-flux-textMain mb-2">Welcome Back</h2>
+          <p className="text-flux-textSub text-sm">Please sign in to your account</p>
+        </div>
+
+        {error && <div className="bg-red-50 text-red-500 text-sm font-semibold p-4 rounded-xl mb-6 text-center">{error}</div>}
+
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div className="relative">
+            <User className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input 
               type="text" 
-              value={loginId} 
-              onChange={(e) => setLoginId(e.target.value)} 
-              required 
+              placeholder="Login ID" 
+              required
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-purple text-sm font-medium"
             />
           </div>
-
-          <div className="input-group">
-            <label>Password</label>
+          
+          <div className="relative">
+            <Key className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input 
               type="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              required 
+              placeholder="Password" 
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-flux-purple text-sm font-medium"
             />
           </div>
 
-          {error && <p className="error-text">{error}</p>}
+          <div className="flex justify-end">
+            <Link to="/forgot-password" className="text-xs font-bold text-flux-purple hover:text-flux-dark transition-colors">Forgot Password?</Link>
+          </div>
 
-          <button type="submit" className="primary-btn">SIGN IN</button>
+          <button type="submit" className="w-full bg-flux-dark text-white font-bold py-4 rounded-xl shadow-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2">
+            <LogIn size={18} /> Sign In
+          </button>
         </form>
 
-        <div className="auth-links">
-          <Link to="/forgot-password">Forget Password ?</Link>
-          <span> | </span>
-          <Link to="/signup">Sign Up</Link>
-        </div>
+        <p className="text-center mt-8 text-sm text-gray-500 font-medium">
+          Don't have an account? <Link to="/signup" className="text-flux-purple hover:text-flux-dark font-bold ml-1">Sign up</Link>
+        </p>
       </div>
     </div>
   );

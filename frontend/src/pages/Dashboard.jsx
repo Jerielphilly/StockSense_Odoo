@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Activity, Package, ArrowUpRight, ArrowDownRight, CheckCircle2 } from 'lucide-react';
 
 export default function Dashboard() {
-  const [kpis, setKpis] = useState(null);
+  const [kpis, setKpis] = useState({ total_products: 0, pending_receipts: 0, pending_deliveries: 0, pending_transfers: 0 });
   const [recentHistory, setRecentHistory] = useState([]);
   const [chartData, setChartData] = useState([]);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -15,9 +15,15 @@ export default function Dashboard() {
         
         // Fetch KPIs
         const resKpi = await fetch('http://127.0.0.1:8000/dashboard', { headers });
-        if (!resKpi.ok) throw new Error("Failed to load KPIs");
-        const dataKpi = await resKpi.json();
-        setKpis(dataKpi.kpis);
+        if (resKpi.status === 401) {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        }
+        if (resKpi.ok) {
+          const dataKpi = await resKpi.json();
+          setKpis(dataKpi.kpis);
+        }
         
         // Fetch Chart Data
         const resChart = await fetch('http://127.0.0.1:8000/analytics/flow', { headers });
@@ -27,103 +33,121 @@ export default function Dashboard() {
         const resHist = await fetch('http://127.0.0.1:8000/history', { headers });
         if (resHist.ok) {
           const histData = await resHist.json();
-          setRecentHistory(histData.slice(0, 5)); // Just grab the 5 most recent moves
+          setRecentHistory(histData.slice(0, 5));
         }
       } catch (err) {
-        setError("Failed to load dashboard data.");
+        console.error(err);
       }
     };
     fetchDashboard();
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
-  if (!kpis) return <div className="loading">Loading KPIs...</div>;
-
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h2>Executive Dashboard</h2>
-          <p className="subtitle">High-level overview of your warehouse operations.</p>
-        </div>
+    <div className="max-w-7xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-flux-textMain mb-2">Inventory Overview</h1>
+        <p className="text-flux-textSub text-sm">Take control of your warehouse operations today!</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
-        <div className="kanban-card" style={{borderTop: '4px solid #ffb4a2'}}>
-          <h3 style={{color: '#888'}}>Total SKUs</h3>
-          <p style={{fontSize: '2.5rem', fontWeight: 'bold'}}>{kpis.total_products}</p>
-        </div>
-        
-        <div className="kanban-card" style={{borderTop: '4px solid #ff4d4d'}}>
-          <h3 style={{color: '#888'}}>Low Stock Alerts</h3>
-          <p style={{fontSize: '2.5rem', fontWeight: 'bold', color: kpis.low_or_out_of_stock > 0 ? '#ff4d4d' : 'inherit'}}>
-            {kpis.low_or_out_of_stock}
-          </p>
-        </div>
-
-        <div className="kanban-card" style={{borderTop: '4px solid #79d279'}}>
-          <h3 style={{color: '#888'}}>Pending Receipts</h3>
-          <p style={{fontSize: '2.5rem', fontWeight: 'bold'}}>{kpis.pending_receipts}</p>
-        </div>
-
-        <div className="kanban-card" style={{borderTop: '4px solid #f39c12'}}>
-          <h3 style={{color: '#888'}}>Pending Deliveries</h3>
-          <p style={{fontSize: '2.5rem', fontWeight: 'bold'}}>{kpis.pending_deliveries}</p>
-        </div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <KpiCard title="Total Products" value={kpis.total_products} icon={Package} bg="bg-white" />
+        <KpiCard title="Pending Receipts" value={kpis.pending_receipts} icon={ArrowDownRight} bg="bg-flux-neon" text="text-flux-dark" />
+        <KpiCard title="Pending Deliveries" value={kpis.pending_deliveries} icon={ArrowUpRight} bg="bg-flux-purple" text="text-white" />
+        <KpiCard title="Internal Transfers" value={kpis.pending_transfers} icon={Activity} bg="bg-white" />
       </div>
 
-      <div style={{display: 'flex', gap: '2rem', flexWrap: 'wrap'}}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Chart Section */}
-        <div style={{flex: '1 1 400px', background: '#1a1a1a', padding: '1.5rem', borderRadius: '12px', border: '1px solid #333'}}>
-          <h3 style={{color: '#ffb4a2', marginBottom: '1.5rem'}}>Stock Flow (Last 7 Days)</h3>
-          <div style={{width: '100%', height: 300}}>
+        {/* Main Chart Area */}
+        <div className="lg:col-span-2 bg-white rounded-3xl p-6 shadow-soft">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-bold text-flux-textMain text-lg">Stock Flow Analysis</h3>
+            <span className="text-xs font-medium text-gray-500">Last 7 Days</span>
+          </div>
+          
+          <div className="h-72 w-full">
             <ResponsiveContainer>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                <XAxis dataKey="date" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Tooltip contentStyle={{backgroundColor: '#222', borderColor: '#444'}} />
-                <Legend />
-                <Bar dataKey="IN" fill="#79d279" name="Stock In (Receipts)" />
-                <Bar dataKey="OUT" fill="#ff4d4d" name="Stock Out (Deliveries)" />
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12}} />
+                <Tooltip 
+                  cursor={{fill: '#f3f4f6'}}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }} 
+                />
+                <Bar dataKey="IN" name="Stock In" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-in-${index}`} fill="#b4a7f9" />
+                  ))}
+                </Bar>
+                <Bar dataKey="OUT" name="Stock Out" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-out-${index}`} fill="#1c1c1e" />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        {/* Recent Activity Section */}
-        <div style={{flex: '1 1 400px'}}>
-          <h3 style={{color: '#ffb4a2', marginBottom: '1rem', borderBottom: '1px solid #444', paddingBottom: '0.5rem'}}>Recent Activity Feed</h3>
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>Product</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentHistory.length === 0 ? (
-                  <tr><td colSpan="3" style={{textAlign:'center'}}>No recent activity.</td></tr>
-                ) : recentHistory.map((move, idx) => {
-                  let color = 'inherit';
-                  if (move.type === 'receipt') color = '#79d279';
-                  if (move.type === 'delivery') color = '#ff4d4d';
-                  
-                  return (
-                    <tr key={idx} style={{color: color}}>
-                      <td style={{fontWeight:'bold'}}>{move.reference}</td>
-                      <td>[{move.sku}] {move.product_name} ({move.quantity})</td>
-                      <td>{move.status.toUpperCase()}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          
+          <div className="flex items-center gap-6 mt-4 pl-8">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-flux-purple"></div>
+              <span className="text-xs font-medium text-gray-500">Stock IN</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-flux-dark"></div>
+              <span className="text-xs font-medium text-gray-500">Stock OUT</span>
+            </div>
           </div>
         </div>
+
+        {/* Recent Activity */}
+        <div className="bg-[#1c1c1e] rounded-3xl p-6 shadow-soft text-white relative overflow-hidden flex flex-col">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-flux-neon opacity-5 rounded-full blur-3xl"></div>
+          
+          <h3 className="font-bold text-lg mb-6 relative z-10">Recent Activity</h3>
+          
+          <div className="flex-1 overflow-y-auto space-y-4 relative z-10 pr-2">
+            {recentHistory.length === 0 ? (
+              <p className="text-gray-500 text-sm">No recent activity.</p>
+            ) : recentHistory.map((move, idx) => (
+              <div key={idx} className="flex items-start gap-4 p-3 rounded-2xl hover:bg-white/5 transition-colors">
+                <div className={`p-2 rounded-xl flex-shrink-0 ${
+                  move.type === 'receipt' ? 'bg-flux-neon/20 text-flux-neon' :
+                  move.type === 'delivery' ? 'bg-red-500/20 text-red-400' :
+                  'bg-gray-700 text-gray-300'
+                }`}>
+                  <CheckCircle2 size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold">{move.reference}</h4>
+                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">[{move.sku}] {move.product_name} ({move.quantity})</p>
+                  <span className="text-[10px] uppercase font-bold text-gray-500 mt-2 block">{move.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ title, value, icon: Icon, bg, text = "text-flux-textMain" }) {
+  return (
+    <div className={`${bg} ${text} rounded-3xl p-6 shadow-soft flex flex-col justify-between h-40`}>
+      <div className="flex justify-between items-start">
+        <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center">
+          <Icon size={20} className={bg === 'bg-white' ? 'text-gray-500' : 'text-current'} />
+        </div>
+        <div className="bg-black/10 px-2 py-1 rounded-full text-[10px] font-bold">
+          Live
+        </div>
+      </div>
+      <div>
+        <h2 className="text-4xl font-bold mb-1">{value}</h2>
+        <p className={`text-xs font-medium ${bg === 'bg-white' ? 'text-gray-500' : 'opacity-80'}`}>{title}</p>
       </div>
     </div>
   );
