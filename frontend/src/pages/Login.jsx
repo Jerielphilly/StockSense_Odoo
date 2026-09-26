@@ -26,7 +26,7 @@ export default function Login() {
       const data = await res.json();
       // Save token and go to Dashboard
       localStorage.setItem('token', data.access_token);
-      navigate('/');
+      window.location.href = '/dashboard';
       
     } catch (err) {
       setError(err.message);
