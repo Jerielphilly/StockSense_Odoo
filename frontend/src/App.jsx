@@ -15,6 +15,13 @@ import Settings from './pages/Settings';
 import './App.css';
 
 function App() {
+  // Parse JWT for Role-Based Access Control (RBAC)
+  const token = localStorage.getItem('token');
+  let role = 'staff';
+  try {
+    if (token) role = JSON.parse(atob(token.split('.')[1])).role;
+  } catch(e) {}
+
   return (
     <Router>
       <div className="app-container">
@@ -22,16 +29,32 @@ function App() {
         {/* Top Navigation Bar from Wireframe */}
         <nav className="navbar">
           <div className="nav-links">
-            <Link to="/dashboard" className="active">Dashboard</Link>
+            {role === 'manager' && <Link to="/dashboard" className="active">Dashboard</Link>}
+            
             <Link to="/operations">Operations</Link>
             <Link to="/products">Products</Link>
             <Link to="/stock">Stock</Link>
-            <Link to="/history">Move History</Link>
-            <Link to="/settings">Settings</Link>
+            
+            {role === 'manager' && (
+              <>
+                <Link to="/history">Move History</Link>
+                <Link to="/settings">Settings</Link>
+              </>
+            )}
           </div>
           
-          <div className="nav-right">
-            <h2>Dashboard</h2>
+          <div className="nav-right" style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+            <span style={{color: '#ffb4a2', fontSize: '0.9rem', textTransform: 'uppercase', border: '1px solid #ffb4a2', padding: '2px 8px', borderRadius: '12px'}}>{role}</span>
+            <button 
+              className="small-btn" 
+              style={{background: 'transparent', border: '1px solid #ff4d4d', color: '#ff4d4d', margin: 0}}
+              onClick={() => {
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+              }}
+            >
+              Logout
+            </button>
             <div className="profile-icon">A</div>
           </div>
         </nav>

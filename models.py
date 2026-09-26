@@ -8,7 +8,7 @@ class User(Base):
     login_id = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(150), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(50), default="staff") # 'manager' or 'staff'
+    role = Column(String(50), default="manager") # 'manager' or 'staff'
     
     # OTP Fields
     reset_otp = Column(String(6), nullable=True)

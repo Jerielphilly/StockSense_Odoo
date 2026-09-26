@@ -181,6 +181,32 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
             raise HTTPException(status_code=400, detail="Not enough stock in source location!")
         src_stock.quantity -= move.quantity
         
+        # --- AUTOMATED REORDERING RULE ---
+        # If stock drops below 5, automatically generate a Purchase Order (Draft Receipt)
+        if src_stock.quantity < 5:
+            # Check if a draft receipt already exists for this product to prevent duplicate orders
+            existing_draft = db.query(models.StockMove).filter(
+                models.StockMove.product_id == move.product_id,
+                models.StockMove.type == 'receipt',
+                models.StockMove.status.in_(['draft', 'waiting', 'ready'])
+            ).first()
+            
+            if not existing_draft:
+                last_receipt = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/IN/%')).order_by(models.StockMove.id.desc()).first()
+                new_ref = f"WH/IN/{int(last_receipt.reference.split('/')[-1]) + 1:04d}" if last_receipt and last_receipt.reference else "WH/IN/0001"
+                
+                auto_reorder = models.StockMove(
+                    product_id=move.product_id,
+                    dest_location_id=move.source_location_id,
+                    quantity=10, # Automatically order a batch of 10
+                    type='receipt',
+                    status='draft',
+                    reference=new_ref,
+                    contact="Auto-Reorder System",
+                    created_by=current_user
+                )
+                db.add(auto_reorder)
+
     # If entering a location (Receipt or Transfer), add stock
     if move.dest_location_id:
         dest_stock = db.query(models.StockLevel).filter_by(product_id=move.product_id, location_id=move.dest_location_id).first()
@@ -265,6 +291,38 @@ def get_dashboard(db: Session = Depends(get_db), current_user: str = Depends(aut
             "pending_transfers": pending_transfers
         }
     }
+
+from datetime import datetime, timedelta
+
+@app.get("/analytics/flow")
+def get_analytics_flow(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    # Calculate stock in/out flow for the last 7 days
+    today = datetime.utcnow().date()
+    seven_days_ago = today - timedelta(days=6)
+    
+    # We will query all completed moves in the last 7 days
+    moves = db.query(models.StockMove).filter(
+        models.StockMove.status == 'done'
+    ).all()
+    
+    # Group by date
+    daily_data = { (today - timedelta(days=i)).strftime('%m/%d'): {"date": (today - timedelta(days=i)).strftime('%m/%d'), "IN": 0, "OUT": 0} for i in range(7) }
+    
+    for move in moves:
+        # Assuming schedule_date or created_at. We'll use id as a proxy for time or just put them all in today if schedule_date is None
+        # Actually, let's use the simplest logic: if no date, skip or put today.
+        # But wait, StockMove has schedule_date. If null, we can't chart it. So we assume today.
+        move_date = move.schedule_date.date() if move.schedule_date else today
+        date_str = move_date.strftime('%m/%d')
+        
+        if date_str in daily_data:
+            if move.type == 'receipt':
+                daily_data[date_str]["IN"] += move.quantity
+            elif move.type == 'delivery':
+                daily_data[date_str]["OUT"] += move.quantity
+                
+    # Return as an ordered list for Recharts
+    return list(reversed(list(daily_data.values())))
 
 @app.get("/products")
 def get_products(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
