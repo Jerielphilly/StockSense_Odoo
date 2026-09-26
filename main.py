@@ -190,7 +190,9 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
             db.add(dest_stock)
         dest_stock.quantity += move.quantity
 
-    # --- AUTOMATED REORDERING RULE ---
+    # Flush pending deductions to the database before running the aggregate query
+    db.flush()
+    
     # We must calculate the TOTAL on-hand stock for this product across all internal locations
     # to see if it dropped below the threshold of 5, regardless of whether this was a receipt, delivery, or manual adjustment!
     total_stock_result = db.query(func.sum(models.StockLevel.quantity)).filter(
