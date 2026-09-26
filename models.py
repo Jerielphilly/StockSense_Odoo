@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from database import Base
 
 class User(Base):
@@ -29,6 +29,7 @@ class Product(Base):
     sku = Column(String(50), unique=True, index=True, nullable=False)
     category = Column(String(100))
     uom = Column(String(20), default="Units") # Unit of Measure (kg, pcs)
+    unit_cost = Column(Integer, default=0)
     created_by = Column(String(50), ForeignKey("users.login_id"), nullable=True)
 
 class StockLevel(Base):
@@ -58,4 +59,6 @@ class StockMove(Base):
 
     # Added to perfectly match PDF requirement: "Add supplier & products" or "Sales order"
     reference = Column(String(255), nullable=True)
+    contact = Column(String(150), nullable=True)
+    schedule_date = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(String(50), ForeignKey("users.login_id"), nullable=True)

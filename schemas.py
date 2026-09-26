@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+from datetime import datetime
 
 class UserCreate(BaseModel):
     login_id: str
@@ -32,6 +33,7 @@ class ProductCreate(BaseModel):
     sku: str
     category: Optional[str] = None
     uom: str = "Units"
+    unit_cost: Optional[int] = 0
     initial_stock: Optional[int] = 0
     location_id: Optional[int] = None # Required if initial_stock > 0
 
@@ -42,3 +44,11 @@ class MoveCreate(BaseModel):
     quantity: int
     type: str # receipt, delivery, internal, adjustment
     reference: Optional[str] = None
+    contact: Optional[str] = None
+    schedule_date: Optional[datetime] = None
+
+class ReceiptCreate(BaseModel):
+    contact: str
+    schedule_date: Optional[datetime] = None
+    dest_location_id: int
+    items: list[dict] # [{"product_id": 1, "quantity": 10}]

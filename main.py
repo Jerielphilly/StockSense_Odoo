@@ -100,7 +100,7 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
 
 @app.post("/products")
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom, created_by=current_user)
+    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom, unit_cost=product.unit_cost, created_by=current_user)
     db.add(db_prod)
     db.commit()
     db.refresh(db_prod)
@@ -133,6 +133,15 @@ def create_move(move: schemas.MoveCreate, db: Session = Depends(get_db), current
     db.refresh(db_move)
     return db_move
 
+@app.post("/moves/{move_id}/ready")
+def mark_move_ready(move_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    move = db.query(models.StockMove).filter(models.StockMove.id == move_id).first()
+    if not move or move.status != 'draft':
+        raise HTTPException(status_code=400, detail="Move not found or not in draft status")
+    move.status = 'ready'
+    db.commit()
+    return {"message": "Move marked as ready"}
+
 @app.post("/moves/{move_id}/validate")
 def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     # The absolute heart of the PDF requirements: "Validate -> stock increases/decreases automatically"
@@ -141,6 +150,8 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
         raise HTTPException(status_code=404, detail="Move not found")
     if move.status == 'done':
         raise HTTPException(status_code=400, detail="Move already validated")
+    if move.status == 'draft':
+        raise HTTPException(status_code=400, detail="Move must be marked as Ready first")
         
     # If leaving a location (Delivery or Transfer), deduct stock
     if move.source_location_id:
@@ -165,7 +176,32 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
 
 @app.get("/stock")
 def get_stock(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    return db.query(models.StockLevel).all()
+    # Join StockLevel, Product, Location
+    results = db.query(models.StockLevel, models.Product, models.Location)\
+        .join(models.Product, models.StockLevel.product_id == models.Product.id)\
+        .join(models.Location, models.StockLevel.location_id == models.Location.id)\
+        .all()
+        
+    stock_list = []
+    for stock, prod, loc in results:
+        # Calculate reserved stock (pending deliveries from this location)
+        reserved = db.query(func.sum(models.StockMove.quantity)).filter(
+            models.StockMove.product_id == prod.id,
+            models.StockMove.source_location_id == loc.id,
+            models.StockMove.type == 'delivery',
+            models.StockMove.status.in_(['draft', 'waiting', 'ready'])
+        ).scalar() or 0
+        
+        stock_list.append({
+            "product_id": prod.id,
+            "product_name": prod.name,
+            "location_id": loc.id,
+            "location_name": loc.name,
+            "unit_cost": prod.unit_cost,
+            "on_hand": stock.quantity,
+            "free_to_use": stock.quantity - reserved
+        })
+    return stock_list
 
 from sqlalchemy import func
 
@@ -207,4 +243,78 @@ def get_dashboard(db: Session = Depends(get_db), current_user: str = Depends(aut
             "pending_deliveries": pending_deliveries,
             "pending_transfers": pending_transfers
         }
+    }
+
+@app.get("/products")
+def get_products(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    return db.query(models.Product).all()
+
+@app.get("/locations")
+def get_locations(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    return db.query(models.Location).all()
+
+@app.post("/receipts")
+def create_receipt(receipt: schemas.ReceiptCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    # Generate WH/IN/000X reference
+    last_receipt = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/IN/%')).order_by(models.StockMove.id.desc()).first()
+    if last_receipt and last_receipt.reference:
+        last_id = int(last_receipt.reference.split('/')[-1])
+        new_ref = f"WH/IN/{last_id + 1:04d}"
+    else:
+        new_ref = "WH/IN/0001"
+        
+    created_moves = []
+    for item in receipt.items:
+        move = models.StockMove(
+            product_id=item["product_id"],
+            dest_location_id=receipt.dest_location_id,
+            quantity=item["quantity"],
+            type='receipt',
+            status='draft',
+            reference=new_ref,
+            contact=receipt.contact,
+            schedule_date=receipt.schedule_date,
+            created_by=current_user
+        )
+        db.add(move)
+        created_moves.append(move)
+    db.commit()
+    return {"reference": new_ref, "message": "Receipt created successfully"}
+
+@app.get("/receipts")
+def get_receipts(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    # Fetch and group in python to avoid MySQL ONLY_FULL_GROUP_BY error
+    moves = db.query(models.StockMove, models.Location)\
+        .outerjoin(models.Location, models.StockMove.dest_location_id == models.Location.id)\
+        .filter(models.StockMove.type == 'receipt').all()
+        
+    receipts_dict = {}
+    for move, loc in moves:
+        if move.reference not in receipts_dict:
+            receipts_dict[move.reference] = {
+                "reference": move.reference,
+                "contact": move.contact,
+                "schedule_date": move.schedule_date,
+                "status": move.status,
+                "dest_location_name": loc.name if loc else "Unknown"
+            }
+    return list(receipts_dict.values())
+
+@app.get("/receipts/{reference:path}")
+def get_receipt_details(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    # Get all moves for this receipt
+    moves = db.query(models.StockMove, models.Product).join(models.Product, models.StockMove.product_id == models.Product.id).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+        
+    first_move = moves[0][0]
+    items = [{"move_id": m[0].id, "product_name": m[1].name, "sku": m[1].sku, "quantity": m[0].quantity, "status": m[0].status} for m in moves]
+    
+    return {
+        "reference": first_move.reference,
+        "contact": first_move.contact,
+        "schedule_date": first_move.schedule_date,
+        "status": first_move.status,
+        "created_by": first_move.created_by,
+        "items": items
     }
