@@ -27,6 +27,13 @@ class ResetPassword(BaseModel):
 class LocationCreate(BaseModel):
     name: str
     type: str = "internal"
+    short_code: Optional[str] = None
+    warehouse_id: Optional[int] = None
+
+class WarehouseCreate(BaseModel):
+    name: str
+    short_code: str
+    address: Optional[str] = None
 
 class ProductCreate(BaseModel):
     name: str
@@ -52,3 +59,9 @@ class ReceiptCreate(BaseModel):
     schedule_date: Optional[datetime] = None
     dest_location_id: int
     items: list[dict] # [{"product_id": 1, "quantity": 10}]
+
+class TransferCreate(BaseModel):
+    schedule_date: Optional[datetime] = None
+    source_location_id: int
+    dest_location_id: int
+    items: list[dict]

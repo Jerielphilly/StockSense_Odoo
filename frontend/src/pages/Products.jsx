@@ -33,23 +33,6 @@ export default function Products() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const handleCreateLocation = async () => {
-    const locName = window.prompt("Enter new location name (e.g., 'Main Warehouse'):");
-    if (!locName) return;
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://127.0.0.1:8000/locations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name: locName, type: 'internal' })
-      });
-      if (res.ok) {
-        alert("Location created!");
-        fetchData();
-      }
-    } catch (err) { alert(err.message); }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -144,7 +127,6 @@ export default function Products() {
                     <option value="">-- Choose Location --</option>
                     {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
                   </select>
-                  <button type="button" className="small-btn" onClick={handleCreateLocation}>+ Loc</button>
                 </div>
               </div>
             )}

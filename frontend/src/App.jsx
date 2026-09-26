@@ -8,6 +8,10 @@ import Stock from './pages/Stock';
 import Products from './pages/Products';
 import Operations from './pages/Operations';
 import Receipts from './pages/Receipts';
+import Deliveries from './pages/Deliveries';
+import Transfers from './pages/Transfers';
+import History from './pages/History';
+import Settings from './pages/Settings';
 import './App.css';
 
 function App() {
@@ -44,6 +48,10 @@ function App() {
             <Route path="/products" element={<Products />} />
             <Route path="/operations" element={<Operations />} />
             <Route path="/operations/receipts" element={<Receipts />} />
+            <Route path="/operations/deliveries" element={<Deliveries />} />
+            <Route path="/operations/transfers" element={<Transfers />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/settings" element={<Settings />} />
             {/* We will add other routes here later as you send wireframes! */}
           </Routes>
         </main>

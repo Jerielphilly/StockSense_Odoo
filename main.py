@@ -90,9 +90,30 @@ def reset_password(req: schemas.ResetPassword, db: Session = Depends(get_db)):
     token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
     return {"message": "Password successfully reset!", "access_token": token, "token_type": "bearer"}
 
+@app.get("/warehouses")
+def get_warehouses(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    return db.query(models.Warehouse).all()
+
+@app.post("/warehouses")
+def create_warehouse(warehouse: schemas.WarehouseCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    db_warehouse = models.Warehouse(
+        name=warehouse.name,
+        short_code=warehouse.short_code,
+        address=warehouse.address
+    )
+    db.add(db_warehouse)
+    db.commit()
+    db.refresh(db_warehouse)
+    return db_warehouse
+
 @app.post("/locations")
 def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    db_loc = models.Location(name=location.name, type=location.type)
+    db_loc = models.Location(
+        name=location.name, 
+        type=location.type,
+        short_code=location.short_code,
+        warehouse_id=location.warehouse_id
+    )
     db.add(db_loc)
     db.commit()
     db.refresh(db_loc)
@@ -318,3 +339,233 @@ def get_receipt_details(reference: str, db: Session = Depends(get_db), current_u
         "created_by": first_move.created_by,
         "items": items
     }
+
+@app.post("/deliveries")
+def create_delivery(delivery: schemas.ReceiptCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    # Generate WH/OUT/000X reference (using ReceiptCreate schema since payload structure is identical)
+    last_delivery = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/OUT/%')).order_by(models.StockMove.id.desc()).first()
+    if last_delivery and last_delivery.reference:
+        last_id = int(last_delivery.reference.split('/')[-1])
+        new_ref = f"WH/OUT/{last_id + 1:04d}"
+    else:
+        new_ref = "WH/OUT/0001"
+        
+    created_moves = []
+    for item in delivery.items:
+        move = models.StockMove(
+            product_id=item["product_id"],
+            source_location_id=delivery.dest_location_id, # For delivery, this is the source location (where it ships FROM)
+            quantity=item["quantity"],
+            type='delivery',
+            status='draft',
+            reference=new_ref,
+            contact=delivery.contact,
+            schedule_date=delivery.schedule_date,
+            created_by=current_user
+        )
+        db.add(move)
+        created_moves.append(move)
+    db.commit()
+    return {"reference": new_ref, "message": "Delivery created successfully"}
+
+@app.get("/deliveries")
+def get_deliveries(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove, models.Location)\
+        .outerjoin(models.Location, models.StockMove.source_location_id == models.Location.id)\
+        .filter(models.StockMove.type == 'delivery').all()
+        
+    deliveries_dict = {}
+    for move, loc in moves:
+        if move.reference not in deliveries_dict:
+            deliveries_dict[move.reference] = {
+                "reference": move.reference,
+                "contact": move.contact,
+                "schedule_date": move.schedule_date,
+                "status": move.status,
+                "source_location_name": loc.name if loc else "Unknown"
+            }
+    return list(deliveries_dict.values())
+
+@app.get("/deliveries/{reference:path}")
+def get_delivery_details(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove, models.Product).join(models.Product, models.StockMove.product_id == models.Product.id).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+        
+    first_move = moves[0][0]
+    items = []
+    for m in moves:
+        move = m[0]
+        prod = m[1]
+        # Calculate available stock for this product in the source location
+        stock = db.query(models.StockLevel).filter_by(product_id=prod.id, location_id=move.source_location_id).first()
+        on_hand = stock.quantity if stock else 0
+        items.append({
+            "move_id": move.id, 
+            "product_name": prod.name, 
+            "sku": prod.sku, 
+            "quantity": move.quantity, 
+            "status": move.status,
+            "on_hand": on_hand
+        })
+    
+    return {
+        "reference": first_move.reference,
+        "contact": first_move.contact,
+        "schedule_date": first_move.schedule_date,
+        "status": first_move.status,
+        "created_by": first_move.created_by,
+        "source_location_id": first_move.source_location_id,
+        "items": items
+    }
+
+@app.post("/deliveries/{reference:path}/check")
+def check_delivery_availability(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+        
+    all_available = True
+    for move in moves:
+        stock = db.query(models.StockLevel).filter_by(product_id=move.product_id, location_id=move.source_location_id).first()
+        on_hand = stock.quantity if stock else 0
+        if move.quantity > on_hand:
+            all_available = False
+            break
+            
+    new_status = 'ready' if all_available else 'waiting'
+    for move in moves:
+        move.status = new_status
+    db.commit()
+    
+@app.post("/transfers")
+def create_transfer(transfer: schemas.TransferCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    last_transfer = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/INT/%')).order_by(models.StockMove.id.desc()).first()
+    if last_transfer and last_transfer.reference:
+        last_id = int(last_transfer.reference.split('/')[-1])
+        new_ref = f"WH/INT/{last_id + 1:04d}"
+    else:
+        new_ref = "WH/INT/0001"
+        
+    for item in transfer.items:
+        move = models.StockMove(
+            product_id=item["product_id"],
+            source_location_id=transfer.source_location_id,
+            dest_location_id=transfer.dest_location_id,
+            quantity=item["quantity"],
+            type='internal',
+            status='draft',
+            reference=new_ref,
+            schedule_date=transfer.schedule_date,
+            created_by=current_user
+        )
+        db.add(move)
+    db.commit()
+    return {"reference": new_ref, "message": "Transfer created successfully"}
+
+@app.get("/transfers")
+def get_transfers(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove).filter(models.StockMove.type == 'internal').all()
+    transfers_dict = {}
+    
+    # We need both source and dest location names. Let's map them efficiently.
+    locations = {loc.id: loc.name for loc in db.query(models.Location).all()}
+    
+    for move in moves:
+        if move.reference not in transfers_dict:
+            transfers_dict[move.reference] = {
+                "reference": move.reference,
+                "schedule_date": move.schedule_date,
+                "status": move.status,
+                "source_location_name": locations.get(move.source_location_id, "Unknown"),
+                "dest_location_name": locations.get(move.dest_location_id, "Unknown")
+            }
+    return list(transfers_dict.values())
+
+@app.get("/transfers/{reference:path}")
+def get_transfer_details(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove, models.Product).join(models.Product, models.StockMove.product_id == models.Product.id).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+        
+    first_move = moves[0][0]
+    items = []
+    for m in moves:
+        move = m[0]
+        prod = m[1]
+        stock = db.query(models.StockLevel).filter_by(product_id=prod.id, location_id=move.source_location_id).first()
+        items.append({
+            "move_id": move.id, 
+            "product_name": prod.name, 
+            "sku": prod.sku, 
+            "quantity": move.quantity, 
+            "status": move.status,
+            "on_hand": stock.quantity if stock else 0
+        })
+    
+    locations = {loc.id: loc.name for loc in db.query(models.Location).all()}
+    
+    return {
+        "reference": first_move.reference,
+        "schedule_date": first_move.schedule_date,
+        "status": first_move.status,
+        "created_by": first_move.created_by,
+        "source_location_name": locations.get(first_move.source_location_id, "Unknown"),
+        "dest_location_name": locations.get(first_move.dest_location_id, "Unknown"),
+        "items": items
+    }
+
+@app.post("/transfers/{reference:path}/check")
+def check_transfer_availability(reference: str, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove).filter(models.StockMove.reference == reference).all()
+    if not moves:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+        
+    all_available = True
+    for move in moves:
+        stock = db.query(models.StockLevel).filter_by(product_id=move.product_id, location_id=move.source_location_id).first()
+        if not stock or move.quantity > stock.quantity:
+            all_available = False
+            break
+            
+    new_status = 'ready' if all_available else 'waiting'
+    for move in moves:
+        move.status = new_status
+    db.commit()
+    return {"message": f"Status updated to {new_status}", "status": new_status}
+
+@app.get("/history")
+def get_history(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    moves = db.query(models.StockMove, models.Product).join(models.Product, models.StockMove.product_id == models.Product.id).order_by(models.StockMove.id.desc()).all()
+    
+    locations = {loc.id: loc.name for loc in db.query(models.Location).all()}
+    
+    history_list = []
+    for move, prod in moves:
+        if move.type == 'receipt':
+            from_loc = "Vendor"
+            to_loc = locations.get(move.dest_location_id, "Unknown")
+        elif move.type == 'delivery':
+            from_loc = locations.get(move.source_location_id, "Unknown")
+            to_loc = "Customer"
+        elif move.type == 'internal':
+            from_loc = locations.get(move.source_location_id, "Unknown")
+            to_loc = locations.get(move.dest_location_id, "Unknown")
+        else: # adjustment
+            from_loc = locations.get(move.source_location_id, "Inventory Loss") if move.source_location_id else "Inventory Gain"
+            to_loc = locations.get(move.dest_location_id, "Inventory Gain") if move.dest_location_id else "Inventory Loss"
+            
+        history_list.append({
+            "id": move.id,
+            "reference": move.reference or "Manual Adj",
+            "date": move.schedule_date,
+            "contact": move.contact or "-",
+            "from_loc": from_loc,
+            "to_loc": to_loc,
+            "product_name": prod.name,
+            "sku": prod.sku,
+            "quantity": move.quantity,
+            "status": move.status,
+            "type": move.type
+        })
+    return history_list

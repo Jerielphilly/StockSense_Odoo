@@ -14,12 +14,28 @@ class User(Base):
     reset_otp = Column(String(6), nullable=True)
     otp_expiry = Column(String(100), nullable=True) # Storing as ISO string for simplicity
 
+from sqlalchemy.orm import relationship
+
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    short_code = Column(String(50), nullable=False, unique=True)
+    address = Column(String(255))
+    
+    locations = relationship("Location", back_populates="warehouse")
+
 class Location(Base):
     __tablename__ = "locations"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False) # e.g., 'Main Warehouse', 'Rack A'
+    short_code = Column(String(50), nullable=True)
     type = Column(String(50), default="internal") # internal, vendor, customer
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    
+    warehouse = relationship("Warehouse", back_populates="locations")
 
 class Product(Base):
     __tablename__ = "products"

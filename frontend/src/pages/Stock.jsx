@@ -68,12 +68,22 @@ export default function Stock() {
       if (!resMove.ok) throw new Error("Failed to create adjustment move");
       const moveData = await resMove.json();
 
+      // 1.5 Mark as Ready (State machine requirement)
+      const resReady = await fetch(`http://127.0.0.1:8000/moves/${moveData.id}/ready`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!resReady.ok) throw new Error("Failed to mark adjustment as ready");
+
       // 2. Validate Move
       const resVal = await fetch(`http://127.0.0.1:8000/moves/${moveData.id}/validate`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!resVal.ok) throw new Error("Failed to validate adjustment move");
+      if (!resVal.ok) {
+        const valData = await resVal.json();
+        throw new Error(valData.detail || "Failed to validate adjustment move");
+      }
 
       alert("Stock updated successfully!");
       fetchStock(); // Refresh data

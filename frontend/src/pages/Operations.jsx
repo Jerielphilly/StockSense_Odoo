@@ -65,9 +65,9 @@ export default function Operations() {
             <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
               {stats.pending_deliveries} <span style={{ fontSize: '0.9rem', fontWeight: 'normal', color: '#888' }}>To Process</span>
             </span>
-            <button className="primary-btn" style={{ marginTop: 0 }} onClick={() => alert("Waiting for Delivery wireframe!")}>
+            <Link to="/operations/deliveries" className="primary-btn" style={{ marginTop: 0, textDecoration: 'none' }}>
               Open Deliveries
-            </button>
+            </Link>
           </div>
         </div>
 
@@ -79,9 +79,9 @@ export default function Operations() {
             <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
               {stats.pending_transfers} <span style={{ fontSize: '0.9rem', fontWeight: 'normal', color: '#888' }}>To Process</span>
             </span>
-            <button className="primary-btn" style={{ marginTop: 0 }} onClick={() => alert("Transfers coming soon!")}>
+            <Link to="/operations/transfers" className="primary-btn" style={{ marginTop: 0, textDecoration: 'none' }}>
               Open Transfers
-            </button>
+            </Link>
           </div>
         </div>
 
