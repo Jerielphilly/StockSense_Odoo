@@ -180,32 +180,6 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
         if not src_stock or src_stock.quantity < move.quantity:
             raise HTTPException(status_code=400, detail="Not enough stock in source location!")
         src_stock.quantity -= move.quantity
-        
-        # --- AUTOMATED REORDERING RULE ---
-        # If stock drops below 5, automatically generate a Purchase Order (Draft Receipt)
-        if src_stock.quantity < 5:
-            # Check if a draft receipt already exists for this product to prevent duplicate orders
-            existing_draft = db.query(models.StockMove).filter(
-                models.StockMove.product_id == move.product_id,
-                models.StockMove.type == 'receipt',
-                models.StockMove.status.in_(['draft', 'waiting', 'ready'])
-            ).first()
-            
-            if not existing_draft:
-                last_receipt = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/IN/%')).order_by(models.StockMove.id.desc()).first()
-                new_ref = f"WH/IN/{int(last_receipt.reference.split('/')[-1]) + 1:04d}" if last_receipt and last_receipt.reference else "WH/IN/0001"
-                
-                auto_reorder = models.StockMove(
-                    product_id=move.product_id,
-                    dest_location_id=move.source_location_id,
-                    quantity=10, # Automatically order a batch of 10
-                    type='receipt',
-                    status='draft',
-                    reference=new_ref,
-                    contact="Auto-Reorder System",
-                    created_by=current_user
-                )
-                db.add(auto_reorder)
 
     # If entering a location (Receipt or Transfer), add stock
     if move.dest_location_id:
@@ -215,6 +189,37 @@ def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str
             dest_stock = models.StockLevel(product_id=move.product_id, location_id=move.dest_location_id, quantity=0)
             db.add(dest_stock)
         dest_stock.quantity += move.quantity
+
+    # --- AUTOMATED REORDERING RULE ---
+    # We must calculate the TOTAL on-hand stock for this product across all internal locations
+    # to see if it dropped below the threshold of 5, regardless of whether this was a receipt, delivery, or manual adjustment!
+    total_stock_result = db.query(func.sum(models.StockLevel.quantity)).filter(
+        models.StockLevel.product_id == move.product_id
+    ).scalar() or 0
+    
+    if total_stock_result < 5:
+        # Check if a draft receipt already exists for this product to prevent duplicate orders
+        existing_draft = db.query(models.StockMove).filter(
+            models.StockMove.product_id == move.product_id,
+            models.StockMove.type == 'receipt',
+            models.StockMove.status.in_(['draft', 'waiting', 'ready'])
+        ).first()
+        
+        if not existing_draft:
+            last_receipt = db.query(models.StockMove).filter(models.StockMove.reference.like('WH/IN/%')).order_by(models.StockMove.id.desc()).first()
+            new_ref = f"WH/IN/{int(last_receipt.reference.split('/')[-1]) + 1:04d}" if last_receipt and last_receipt.reference else "WH/IN/0001"
+            
+            auto_reorder = models.StockMove(
+                product_id=move.product_id,
+                dest_location_id=1, # Default to the first location for reorders
+                quantity=10, # Automatically order a batch of 10
+                type='receipt',
+                status='draft',
+                reference=new_ref,
+                contact="Auto-Reorder System",
+                created_by=current_user
+            )
+            db.add(auto_reorder)
 
     # Mark the ledger entry as complete
     move.status = 'done'
