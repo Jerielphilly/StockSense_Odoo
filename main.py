@@ -1,110 +1,68 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from fastapi.middleware.cors import CORSMiddleware
 import models, schemas
 from database import engine, get_db
-
-from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func
 
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="StockSense API")
 
-# Allow React (running on localhost:5173) to communicate with this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-from fastapi import BackgroundTasks
-import auth
-import random
-from datetime import datetime, timedelta
-
-@app.post("/auth/signup")
-def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if db.query(models.User).filter((models.User.email == user.email) | (models.User.login_id == user.login_id)).first():
-        raise HTTPException(status_code=400, detail="Email or Login ID already registered")
-    
-    hashed_pwd = auth.get_password_hash(user.password)
-    new_user = models.User(login_id=user.login_id, email=user.email, hashed_password=hashed_pwd, role=user.role)
-    db.add(new_user)
-    db.commit()
-    return {"message": "User created successfully"}
-
-@app.post("/auth/login")
-def login(user: schemas.UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.login_id == user.login_id).first()
-    if not db_user or not auth.verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid Login Id or Password")
-    
-    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
-    return {"access_token": token, "token_type": "bearer"}
-
-@app.post("/auth/forgot-password")
-def forgot_password(req: schemas.ForgotPassword, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    otp = str(random.randint(100000, 999999))
-    db_user.reset_otp = otp
-    db_user.otp_expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
-    db.commit()
-    
-    background_tasks.add_task(auth.send_otp_email_background, db_user.email, otp)
-    return {"message": f"OTP sent to {db_user.email}"}
-
-@app.post("/auth/verify-otp")
-def verify_otp(req: schemas.VerifyOTP, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
-    if not db_user or db_user.reset_otp != req.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-        
-    if datetime.utcnow() > datetime.fromisoformat(db_user.otp_expiry):
-        raise HTTPException(status_code=400, detail="OTP expired")
-        
-    # Clear OTP and log them in
-    db_user.reset_otp = None
-    db_user.otp_expiry = None
-    db.commit()
-    
-    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
-    return {"access_token": token, "token_type": "bearer"}
-
-@app.post("/auth/reset-password")
-def reset_password(req: schemas.ResetPassword, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
-    if not db_user or db_user.reset_otp != req.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-        
-    if datetime.utcnow() > datetime.fromisoformat(db_user.otp_expiry):
-        raise HTTPException(status_code=400, detail="OTP expired")
-        
-    db_user.hashed_password = auth.get_password_hash(req.new_password)
-    db_user.reset_otp = None
-    db_user.otp_expiry = None
-    db.commit()
-    
-    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
-    return {"message": "Password successfully reset!", "access_token": token, "token_type": "bearer"}
+# ─── LOCATIONS ────────────────────────────────────────────
+@app.get("/locations")
+def get_locations(db: Session = Depends(get_db)):
+    return db.query(models.Location).all()
 
 @app.post("/locations")
-def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db)):
     db_loc = models.Location(name=location.name, type=location.type)
     db.add(db_loc)
     db.commit()
     db.refresh(db_loc)
     return db_loc
 
+@app.delete("/locations/{location_id}")
+def delete_location(location_id: int, db: Session = Depends(get_db)):
+    loc = db.query(models.Location).filter(models.Location.id == location_id).first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    db.delete(loc)
+    db.commit()
+    return {"message": "Deleted"}
+
+# ─── PRODUCTS ─────────────────────────────────────────────
+@app.get("/products")
+def get_products(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    result = []
+    for p in products:
+        total_qty = db.query(func.sum(models.StockLevel.quantity)).filter(
+            models.StockLevel.product_id == p.id
+        ).scalar() or 0
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "sku": p.sku,
+            "category": p.category,
+            "uom": p.uom,
+            "qty_available": int(total_qty)
+        })
+    return result
+
 @app.post("/products")
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom, created_by=current_user)
+def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom)
     db.add(db_prod)
     db.commit()
     db.refresh(db_prod)
-    
     if product.initial_stock > 0 and product.location_id:
         adj_move = models.StockMove(
             product_id=db_prod.id,
@@ -112,92 +70,126 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
             quantity=product.initial_stock,
             type='adjustment',
             status='done',
-            reference='Initial Stock Setup',
-            created_by=current_user
+            reference='Initial Stock Setup'
         )
         db.add(adj_move)
-        
         stock = models.StockLevel(product_id=db_prod.id, location_id=product.location_id, quantity=product.initial_stock)
         db.add(stock)
         db.commit()
-        
     return db_prod
 
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    prod = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not prod:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.query(models.StockLevel).filter(models.StockLevel.product_id == product_id).delete()
+    db.delete(prod)
+    db.commit()
+    return {"message": "Deleted"}
+
+# ─── MOVES ────────────────────────────────────────────────
+@app.get("/moves")
+def get_moves(db: Session = Depends(get_db)):
+    moves = db.query(models.StockMove).order_by(models.StockMove.id.desc()).all()
+    result = []
+    for m in moves:
+        product = db.query(models.Product).filter(models.Product.id == m.product_id).first()
+        src = db.query(models.Location).filter(models.Location.id == m.source_location_id).first() if m.source_location_id else None
+        dst = db.query(models.Location).filter(models.Location.id == m.dest_location_id).first() if m.dest_location_id else None
+        result.append({
+            "id": m.id,
+            "reference": m.reference or f"WH/{m.type.upper()[:3]}/{str(m.id).zfill(5)}",
+            "product_id": m.product_id,
+            "product_name": product.name if product else "Unknown",
+            "product_sku": product.sku if product else "",
+            "source_location_id": m.source_location_id,
+            "source_location": src.name if src else "Vendor / External",
+            "dest_location_id": m.dest_location_id,
+            "dest_location": dst.name if dst else "Customer / External",
+            "quantity": m.quantity,
+            "type": m.type,
+            "status": m.status,
+        })
+    return result
+
 @app.post("/moves")
-def create_move(move: schemas.MoveCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    move_data = move.model_dump()
-    move_data["created_by"] = current_user
-    db_move = models.StockMove(**move_data)
+def create_move(move: schemas.MoveCreate, db: Session = Depends(get_db)):
+    db_move = models.StockMove(**move.model_dump())
     db.add(db_move)
     db.commit()
     db.refresh(db_move)
     return db_move
 
 @app.post("/moves/{move_id}/validate")
-def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    # The absolute heart of the PDF requirements: "Validate -> stock increases/decreases automatically"
+def validate_move(move_id: int, db: Session = Depends(get_db)):
     move = db.query(models.StockMove).filter(models.StockMove.id == move_id).first()
     if not move:
         raise HTTPException(status_code=404, detail="Move not found")
     if move.status == 'done':
         raise HTTPException(status_code=400, detail="Move already validated")
-        
-    # If leaving a location (Delivery or Transfer), deduct stock
     if move.source_location_id:
         src_stock = db.query(models.StockLevel).filter_by(product_id=move.product_id, location_id=move.source_location_id).first()
         if not src_stock or src_stock.quantity < move.quantity:
             raise HTTPException(status_code=400, detail="Not enough stock in source location!")
         src_stock.quantity -= move.quantity
-        
-    # If entering a location (Receipt or Transfer), add stock
     if move.dest_location_id:
         dest_stock = db.query(models.StockLevel).filter_by(product_id=move.product_id, location_id=move.dest_location_id).first()
         if not dest_stock:
-            # Create the record if it doesn't exist yet
             dest_stock = models.StockLevel(product_id=move.product_id, location_id=move.dest_location_id, quantity=0)
             db.add(dest_stock)
         dest_stock.quantity += move.quantity
-
-    # Mark the ledger entry as complete
     move.status = 'done'
     db.commit()
-    return {"message": "Success! Stock updated automatically."}
+    return {"message": "Stock updated successfully."}
 
+@app.delete("/moves/{move_id}")
+def delete_move(move_id: int, db: Session = Depends(get_db)):
+    move = db.query(models.StockMove).filter(models.StockMove.id == move_id).first()
+    if not move:
+        raise HTTPException(status_code=404, detail="Move not found")
+    db.delete(move)
+    db.commit()
+    return {"message": "Deleted"}
+
+# ─── STOCK LEVELS ─────────────────────────────────────────
 @app.get("/stock")
-def get_stock(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    return db.query(models.StockLevel).all()
+def get_stock(db: Session = Depends(get_db)):
+    levels = db.query(models.StockLevel).all()
+    result = []
+    for s in levels:
+        product = db.query(models.Product).filter(models.Product.id == s.product_id).first()
+        location = db.query(models.Location).filter(models.Location.id == s.location_id).first()
+        result.append({
+            "product_id": s.product_id,
+            "product_name": product.name if product else "Unknown",
+            "product_sku": product.sku if product else "",
+            "product_category": product.category if product else "",
+            "product_uom": product.uom if product else "Units",
+            "location_id": s.location_id,
+            "location_name": location.name if location else "Unknown",
+            "quantity": s.quantity
+        })
+    return result
 
-from sqlalchemy import func
-
+# ─── DASHBOARD ────────────────────────────────────────────
 @app.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    # 1. Total Products
+def get_dashboard(db: Session = Depends(get_db)):
     total_skus = db.query(models.Product).count()
-    
-    # 2. Total items physically in stock across all locations
     total_items = db.query(func.sum(models.StockLevel.quantity)).scalar() or 0
-    
-    # 3. Pending Operations
     pending_receipts = db.query(models.StockMove).filter(models.StockMove.type == 'receipt', models.StockMove.status != 'done').count()
     pending_deliveries = db.query(models.StockMove).filter(models.StockMove.type == 'delivery', models.StockMove.status != 'done').count()
     pending_transfers = db.query(models.StockMove).filter(models.StockMove.type == 'internal', models.StockMove.status != 'done').count()
-    
-    # 4. Low Stock / Out of Stock (Calculate total stock per product)
     stock_by_product = db.query(
-        models.StockLevel.product_id, 
+        models.StockLevel.product_id,
         func.sum(models.StockLevel.quantity).label('total_qty')
     ).group_by(models.StockLevel.product_id).all()
-    
-    # Count products with <= 10 stock
     low_stock_count = sum(1 for item in stock_by_product if item.total_qty <= 10)
-    
-    # Count products that have absolutely 0 stock (no ledger entries yet)
     products_with_stock = [item.product_id for item in stock_by_product]
     if products_with_stock:
         out_of_stock = db.query(models.Product).filter(~models.Product.id.in_(products_with_stock)).count()
     else:
         out_of_stock = total_skus
-        
     return {
         "kpis": {
             "total_products": total_skus,
