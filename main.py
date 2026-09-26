@@ -3,11 +3,95 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import engine, get_db
 
+from fastapi.middleware.cors import CORSMiddleware
+
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="StockSense API")
 
+# Allow React (running on localhost:5173) to communicate with this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from fastapi import BackgroundTasks
+import auth
+import random
+from datetime import datetime, timedelta
+
+@app.post("/auth/signup")
+def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    if db.query(models.User).filter((models.User.email == user.email) | (models.User.login_id == user.login_id)).first():
+        raise HTTPException(status_code=400, detail="Email or Login ID already registered")
+    
+    hashed_pwd = auth.get_password_hash(user.password)
+    new_user = models.User(login_id=user.login_id, email=user.email, hashed_password=hashed_pwd, role=user.role)
+    db.add(new_user)
+    db.commit()
+    return {"message": "User created successfully"}
+
+@app.post("/auth/login")
+def login(user: schemas.UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.login_id == user.login_id).first()
+    if not db_user or not auth.verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid Login Id or Password")
+    
+    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
+    return {"access_token": token, "token_type": "bearer"}
+
+@app.post("/auth/forgot-password")
+def forgot_password(req: schemas.ForgotPassword, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    otp = str(random.randint(100000, 999999))
+    db_user.reset_otp = otp
+    db_user.otp_expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    db.commit()
+    
+    background_tasks.add_task(auth.send_otp_email_background, db_user.email, otp)
+    return {"message": f"OTP sent to {db_user.email}"}
+
+@app.post("/auth/verify-otp")
+def verify_otp(req: schemas.VerifyOTP, db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
+    if not db_user or db_user.reset_otp != req.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+        
+    if datetime.utcnow() > datetime.fromisoformat(db_user.otp_expiry):
+        raise HTTPException(status_code=400, detail="OTP expired")
+        
+    # Clear OTP and log them in
+    db_user.reset_otp = None
+    db_user.otp_expiry = None
+    db.commit()
+    
+    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
+    return {"access_token": token, "token_type": "bearer"}
+
+@app.post("/auth/reset-password")
+def reset_password(req: schemas.ResetPassword, db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.login_id == req.login_id).first()
+    if not db_user or db_user.reset_otp != req.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+        
+    if datetime.utcnow() > datetime.fromisoformat(db_user.otp_expiry):
+        raise HTTPException(status_code=400, detail="OTP expired")
+        
+    db_user.hashed_password = auth.get_password_hash(req.new_password)
+    db_user.reset_otp = None
+    db_user.otp_expiry = None
+    db.commit()
+    
+    token = auth.create_access_token(data={"sub": db_user.login_id, "role": db_user.role})
+    return {"message": "Password successfully reset!", "access_token": token, "token_type": "bearer"}
+
 @app.post("/locations")
-def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db)):
+def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     db_loc = models.Location(name=location.name, type=location.type)
     db.add(db_loc)
     db.commit()
@@ -15,26 +99,24 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
     return db_loc
 
 @app.post("/products")
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
-    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom)
+def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    db_prod = models.Product(name=product.name, sku=product.sku, category=product.category, uom=product.uom, created_by=current_user)
     db.add(db_prod)
     db.commit()
     db.refresh(db_prod)
     
-    # Handle the "Initial Stock (optional)" requirement from the PDF
     if product.initial_stock > 0 and product.location_id:
-        # 1. Log the adjustment in the ledger
         adj_move = models.StockMove(
             product_id=db_prod.id,
             dest_location_id=product.location_id,
             quantity=product.initial_stock,
             type='adjustment',
             status='done',
-            reference='Initial Stock Setup'
+            reference='Initial Stock Setup',
+            created_by=current_user
         )
         db.add(adj_move)
         
-        # 2. Add the actual stock
         stock = models.StockLevel(product_id=db_prod.id, location_id=product.location_id, quantity=product.initial_stock)
         db.add(stock)
         db.commit()
@@ -42,16 +124,17 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     return db_prod
 
 @app.post("/moves")
-def create_move(move: schemas.MoveCreate, db: Session = Depends(get_db)):
-    # Creates a move in "draft" status (e.g. Pending Receipt or Pending Delivery)
-    db_move = models.StockMove(**move.model_dump())
+def create_move(move: schemas.MoveCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    move_data = move.model_dump()
+    move_data["created_by"] = current_user
+    db_move = models.StockMove(**move_data)
     db.add(db_move)
     db.commit()
     db.refresh(db_move)
     return db_move
 
 @app.post("/moves/{move_id}/validate")
-def validate_move(move_id: int, db: Session = Depends(get_db)):
+def validate_move(move_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     # The absolute heart of the PDF requirements: "Validate -> stock increases/decreases automatically"
     move = db.query(models.StockMove).filter(models.StockMove.id == move_id).first()
     if not move:
@@ -81,13 +164,13 @@ def validate_move(move_id: int, db: Session = Depends(get_db)):
     return {"message": "Success! Stock updated automatically."}
 
 @app.get("/stock")
-def get_stock(db: Session = Depends(get_db)):
+def get_stock(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     return db.query(models.StockLevel).all()
 
 from sqlalchemy import func
 
 @app.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_db)):
+def get_dashboard(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     # 1. Total Products
     total_skus = db.query(models.Product).count()
     

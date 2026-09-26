@@ -1,5 +1,27 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
+
+class UserCreate(BaseModel):
+    login_id: str
+    email: EmailStr
+    password: str
+    role: str = "staff"
+
+class UserLogin(BaseModel):
+    login_id: str
+    password: str
+
+class ForgotPassword(BaseModel):
+    login_id: str
+
+class VerifyOTP(BaseModel):
+    login_id: str
+    otp: str
+
+class ResetPassword(BaseModel):
+    login_id: str
+    otp: str
+    new_password: str
 
 class LocationCreate(BaseModel):
     name: str

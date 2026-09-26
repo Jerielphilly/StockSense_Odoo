@@ -1,6 +1,19 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from database import Base
 
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    login_id = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(150), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(50), default="staff") # 'manager' or 'staff'
+    
+    # OTP Fields
+    reset_otp = Column(String(6), nullable=True)
+    otp_expiry = Column(String(100), nullable=True) # Storing as ISO string for simplicity
+
 class Location(Base):
     __tablename__ = "locations"
     
@@ -16,6 +29,7 @@ class Product(Base):
     sku = Column(String(50), unique=True, index=True, nullable=False)
     category = Column(String(100))
     uom = Column(String(20), default="Units") # Unit of Measure (kg, pcs)
+    created_by = Column(String(50), ForeignKey("users.login_id"), nullable=True)
 
 class StockLevel(Base):
     __tablename__ = "stock_levels"
@@ -44,3 +58,4 @@ class StockMove(Base):
 
     # Added to perfectly match PDF requirement: "Add supplier & products" or "Sales order"
     reference = Column(String(255), nullable=True)
+    created_by = Column(String(50), ForeignKey("users.login_id"), nullable=True)

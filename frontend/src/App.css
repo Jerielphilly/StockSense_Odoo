@@ -125,3 +125,158 @@ body {
   margin-top: 3rem;
   font-size: 1.2rem;
 }
+
+/* Auth Pages Styling */
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 70vh;
+}
+
+.auth-card {
+  border: 2px solid #ffb4a2;
+  border-radius: 15px;
+  padding: 2.5rem;
+  width: 450px;
+  background-color: #242424;
+  text-align: center;
+}
+
+.auth-card h2 {
+  margin-bottom: 2rem;
+  font-size: 1.8rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 0.5rem;
+}
+
+.input-group label {
+  color: #ffb4a2;
+  font-size: 1rem;
+}
+
+.input-group input {
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: 2px solid #ffb4a2;
+  background-color: #1a1a1a;
+  color: white;
+  outline: none;
+  font-size: 1rem;
+}
+
+.input-group input:focus {
+  border-color: white;
+}
+
+.primary-btn {
+  background-color: transparent;
+  color: #ffb4a2;
+  border: 2px solid #ffb4a2;
+  border-radius: 8px;
+  padding: 0.8rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+  margin-top: 1rem;
+}
+
+.primary-btn:hover {
+  background-color: #ffb4a2;
+  color: #1a1a1a;
+}
+
+.error-text {
+  color: #ff6b6b;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.auth-links {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+}
+
+.auth-links a {
+  color: #ffb4a2;
+  text-decoration: none;
+}
+
+/* Hero Page Styling */
+.hero-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80vh;
+  text-align: center;
+}
+
+.hero-content {
+  max-width: 800px;
+}
+
+.hero-title {
+  font-size: 3.5rem;
+  color: #ffb4a2;
+  margin-bottom: 1.5rem;
+}
+
+.hero-subtitle {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  margin-bottom: 3rem;
+  color: #ddd;
+}
+
+.hero-features {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  margin-bottom: 3rem;
+}
+
+.feature {
+  background-color: #242424;
+  padding: 1.5rem;
+  border-radius: 10px;
+  border: 1px solid #ffb4a2;
+  flex: 1;
+}
+
+.feature h3 {
+  margin-bottom: 0.5rem;
+  color: #ffb4a2;
+}
+
+.hero-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.hero-btn {
+  padding: 1rem 3rem;
+  font-size: 1.2rem;
+  text-decoration: none;
+}
+
+.hero-btn.outline {
+  background-color: transparent;
+  color: #ffb4a2;
+}
+.hero-btn:not(.outline) {
+  background-color: #ffb4a2;
+  color: #1a1a1a;
+}

@@ -6,7 +6,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     // Fetch data from our FastAPI backend!
-    fetch('http://127.0.0.1:8000/dashboard')
+    const token = localStorage.getItem('token');
+    fetch('http://127.0.0.1:8000/dashboard', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
       .then(res => {
         if (!res.ok) throw new Error("Network response was not ok");
         return res.json();
