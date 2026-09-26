@@ -23,3 +23,24 @@ class StockLevel(Base):
     product_id = Column(Integer, ForeignKey("products.id"), primary_key=True)
     location_id = Column(Integer, ForeignKey("locations.id"), primary_key=True)
     quantity = Column(Integer, default=0, nullable=False)
+
+class StockMove(Base):
+    __tablename__ = "stock_moves"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    
+    # Nullable because a Vendor Receipt has no "internal" source, and a Delivery has no "internal" destination
+    source_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    dest_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    
+    quantity = Column(Integer, nullable=False)
+    
+    # e.g., 'receipt', 'delivery', 'internal', 'adjustment'
+    type = Column(String(50), nullable=False)
+    
+    # e.g., 'draft', 'waiting', 'ready', 'done', 'canceled'
+    status = Column(String(50), default='draft', nullable=False)
+
+    # Added to perfectly match PDF requirement: "Add supplier & products" or "Sales order"
+    reference = Column(String(255), nullable=True)
